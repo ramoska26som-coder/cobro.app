@@ -26,15 +26,54 @@ const getEst  = v => CONFIG.ESTADOS.find(e=>e.value===v) || CONFIG.ESTADOS[6];
 const stCls   = v => 's-'+(v||'pendiente');
 const ultGest = c => D.gestiones.filter(g=>g.cliente===c).sort((a,b)=>(b.fecha+b.hora).localeCompare(a.fecha+a.hora))[0];
 
+function normCart(v) {
+  return String(v==null?'':v).trim().replace(/\s+/g,' ');
+}
+
+// Clave de comparación tolerante: ignora may/min, acentos y espacios extra.
+// La hoja se edita a mano, así que "Gestión Telefónica 1" y "gestion telefonica 1"
+// deben considerarse la misma cartera.
+function cartKey(v) {
+  return normCart(v).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+}
+
+// Un cliente pertenece a la cartera si CUALQUIERA de sus préstamos lo hace.
+function perteneceCartera(c, cartera) {
+  const k = cartKey(cartera);
+  if (!k) return true;
+  const lista = (c.carteras && c.carteras.length) ? c.carteras : [c.cartera];
+  return lista.some(x => cartKey(x) === k);
+}
+
+// Agrupa préstamos por cliente.
+// La cartera del grupo se toma de la fila con mayor saldo (no de la primera),
+// porque un mismo cliente puede tener filas en carteras distintas y el orden
+// de la hoja es arbitrario. Si hay empate, gana la primera no vacía.
 function agrupar(ps) {
   const m = {};
   ps.forEach(p => {
-    if (!m[p.cliente]) m[p.cliente]={cliente:p.cliente,cartera:p.cartera,diaPago:p.diaPago,prestamos:[],totalBal:0,totalCuo:0};
-    m[p.cliente].prestamos.push(p);
-    m[p.cliente].totalBal+=p.balance;
-    m[p.cliente].totalCuo+=p.balanceCuotas;
+    const cart = normCart(p.cartera);
+    const peso = (p.balance||0) + (p.balanceCuotas||0);
+    if (!m[p.cliente]) {
+      m[p.cliente] = {cliente:p.cliente, cartera:cart, diaPago:p.diaPago,
+                      _peso:peso, carteras:new Set(), prestamos:[], totalBal:0, totalCuo:0};
+    }
+    const g = m[p.cliente];
+    if (cart) g.carteras.add(cart);
+    // La fila con más saldo define la cartera y el día de pago del grupo
+    if (cart && (peso > g._peso || !g.cartera)) {
+      g.cartera = cart;
+      g.diaPago = p.diaPago;
+      g._peso   = peso;
+    }
+    g.prestamos.push(p);
+    g.totalBal += p.balance;
+    g.totalCuo += p.balanceCuotas;
   });
-  return Object.values(m);
+  return Object.values(m).map(g => {
+    g.carteras = [...g.carteras];
+    return g;
+  });
 }
 
 function toast(msg, type='') {
@@ -159,9 +198,9 @@ function mostrarResumenInicial() {
   if (!D.prestamos.length && !D.pagos.length) return;
   const esGestor2 = USER && USER.rol === 'gestor' && USER.cartera;
   let actP = D.prestamos.filter(p=>(p.balance+p.balanceCuotas)>=CONFIG.MIN_BALANCE);
-  if (esGestor2) actP = actP.filter(p=>p.cartera===USER.cartera);
+  if (esGestor2) actP = actP.filter(p=>cartKey(p.cartera)===cartKey(USER.cartera));
   let pagosR = D.pagos;
-  if (esGestor2) pagosR = pagosR.filter(p=>p.cartera===USER.cartera);
+  if (esGestor2) pagosR = pagosR.filter(p=>cartKey(p.cartera)===cartKey(USER.cartera));
   let gHR = D.gestiones.filter(g=>g.fecha===hoyStr);
   if (esGestor2) gHR = gHR.filter(g=>g.gestor===USER.nombre);
 
@@ -387,9 +426,9 @@ function cargarEjemplo() {
 function renderDash() {
   const esGestor = USER && USER.rol === 'gestor' && USER.cartera;
   let act = D.prestamos.filter(p=>(p.balance+p.balanceCuotas)>=CONFIG.MIN_BALANCE);
-  if (esGestor) act = act.filter(p => p.cartera === USER.cartera);
+  if (esGestor) act = act.filter(p => cartKey(p.cartera) === cartKey(USER.cartera));
   let pagosAct = D.pagos;
-  if (esGestor) pagosAct = pagosAct.filter(p => p.cartera === USER.cartera);
+  if (esGestor) pagosAct = pagosAct.filter(p => cartKey(p.cartera) === cartKey(USER.cartera));
 
   const c      = getCiclo();
   const totCar = act.reduce((s,p)=>s+p.balance,0);
@@ -400,7 +439,7 @@ function renderDash() {
   //       Fallback: CONFIG.META_CICLO (legacy) o suma de cuotas activas.
   let meta;
   if (esGestor) {
-    const zona = D.carteras.find(z => z.nombre === USER.cartera);
+    const zona = D.carteras.find(z => cartKey(z.nombre) === cartKey(USER.cartera));
     meta = zona ? zona.meta : (CONFIG.META_CICLO || totCuo);
   } else {
     meta = D.carteras.length ? D.carteras.reduce((s,z)=>s+z.meta,0) : (CONFIG.META_CICLO || totCuo);
@@ -720,8 +759,8 @@ function renderZonas() {
 
   // Enriquecer con stats reales por cartera
   const stats = D.carteras.map(z => {
-    const prestamos = D.prestamos.filter(p => p.cartera === z.nombre);
-    const pagos     = D.pagos.filter(p => p.cartera === z.nombre);
+    const prestamos = D.prestamos.filter(p => cartKey(p.cartera) === cartKey(z.nombre));
+    const pagos     = D.pagos.filter(p => cartKey(p.cartera) === cartKey(z.nombre));
     const clientes  = new Set(prestamos.map(p=>p.cliente));
     const recuperado= pagos.reduce((s,p)=>s+p.valor,0);
     const pct       = z.meta > 0 ? (recuperado / z.meta * 100) : 0;
@@ -839,8 +878,8 @@ function filtrarCartera() {
   if (fds) cls = cls.filter(c=>c.diaPago.toLowerCase().includes(fds));
   if (fdm) cls = cls.filter(c=>{const m=c.diaPago.match(/Día (\d+)/);return m&&parseInt(m[1])===parseInt(fdm);});
   if (fe)  cls = cls.filter(c=>{const u=ultGest(c.cliente);if(fe==='pendiente')return !u;return u&&u.estado===fe;});
-  if (fc)  cls = cls.filter(c=>c.cartera===fc);
-  if (USER && USER.cartera && USER.rol==='gestor') cls=cls.filter(c=>c.cartera===USER.cartera);
+  if (fc)  cls = cls.filter(c=>perteneceCartera(c, fc));
+  if (USER && USER.cartera && USER.rol==='gestor') cls=cls.filter(c=>perteneceCartera(c, USER.cartera));
 
   switch(fo) {
     case 'prioridad':     cls.sort((a,b)=>prioridadCliente(b)-prioridadCliente(a)); break;
@@ -852,12 +891,30 @@ function filtrarCartera() {
     case 'mora':          cls.sort((a,b)=>(diasDesdeUltimoPago(b.cliente)||0)-(diasDesdeUltimoPago(a.cliente)||0)); break;
   }
 
-  // Prioriza la lista canónica de Zonas; si aún no hay, deduce de los préstamos
-  const carteras = D.carteras.length
-    ? D.carteras.map(z=>z.nombre)
-    : [...new Set(D.prestamos.map(p=>p.cartera).filter(Boolean))];
-  const fcEl=document.getElementById('f-cart');
-  if(fcEl&&fcEl.options.length<=1) carteras.forEach(ca=>fcEl.innerHTML+=`<option value="${esc(ca)}">${esc(ca)}</option>`);
+  // Une las zonas configuradas con las carteras que realmente aparecen en los
+  // préstamos: si la hoja tiene una cartera no registrada en Zonas, igual debe
+  // poder filtrarse (antes desaparecía del selector).
+  const vistas = new Map();
+  D.carteras.forEach(z => vistas.set(cartKey(z.nombre), normCart(z.nombre)));
+  D.prestamos.forEach(p => {
+    const k = cartKey(p.cartera);
+    if (k && !vistas.has(k)) vistas.set(k, normCart(p.cartera));
+  });
+  const carteras = [...vistas.values()].sort((a,b)=>a.localeCompare(b));
+
+  const fcEl = document.getElementById('f-cart');
+  if (fcEl) {
+    const gestorFijo = USER && USER.rol==='gestor' && USER.cartera;
+    if (gestorFijo) {
+      // El gestor solo ve su cartera: el selector no aporta y confunde.
+      const wrap = fcEl.closest('.f-item') || fcEl;
+      wrap.style.display = 'none';
+    } else if (fcEl.options.length <= 1) {
+      const prev = fcEl.value;
+      carteras.forEach(ca => fcEl.innerHTML += `<option value="${esc(ca)}">${esc(ca)}</option>`);
+      if (prev) fcEl.value = prev;
+    }
+  }
 
   siguienteLista=cls; siguienteIdx=0;
   document.getElementById('c-count').textContent = cls.length + ' clientes activos';
@@ -1041,7 +1098,7 @@ function filtrarPagos() {
   const fm=document.getElementById('fp-medio')?.value||'';
   let p=[...D.pagos].sort((a,b)=>b.fecha.localeCompare(a.fecha));
   // Un gestor solo ve pagos de su cartera
-  if (USER && USER.rol==='gestor' && USER.cartera) p = p.filter(x=>x.cartera===USER.cartera);
+  if (USER && USER.rol==='gestor' && USER.cartera) p = p.filter(x=>cartKey(x.cartera)===cartKey(USER.cartera));
   if(ft) p=p.filter(x=>x.cliente.toLowerCase().includes(ft));
   if(fm) p=p.filter(x=>(x.medioPago||'efectivo')===fm);
   const totV=p.reduce((s,x)=>s+x.valor,0);
