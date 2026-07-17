@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+  <meta name="theme-color" content="#1877F2">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <title>Cobros Pro</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+
+<!-- ═══ RESUMEN INICIAL ═══════════════════════════════════════ -->
+<div id="resumen-inicial" class="ri-overlay" style="display:none" onclick="this.style.display='none'">
+  <div class="ri-card" onclick="event.stopPropagation()">
+    <div class="ri-header">
+      <div class="ri-icon-wrap"></div>
+      <span class="ri-title">Resumen del día</span>
+      <button class="btn-x" onclick="document.getElementById('resumen-inicial').style.display='none'"></button>
+    </div>
+    <div class="ri-rows">
+      <div class="ri-row"><span class="ri-row-label" data-ic="target">Meta del ciclo</span><strong id="ri-meta">—</strong></div>
+      <div class="ri-row"><span class="ri-row-label" data-ic="dollar-sign">Recuperado</span><strong id="ri-rec">—</strong></div>
+      <div class="ri-row"><span class="ri-row-label" data-ic="calendar">Días para cierre</span><strong id="ri-dias">—</strong></div>
+      <div class="ri-row"><span class="ri-row-label" data-ic="phone">Gestiones hoy</span><strong id="ri-gest">—</strong></div>
+      <div class="ri-row warn"><span class="ri-row-label" data-ic="alert-triangle">Promesas vencidas</span><strong id="ri-prom">—</strong></div>
+    </div>
+    <button class="btn-pri btn-full" onclick="document.getElementById('resumen-inicial').style.display='none'">Comenzar</button>
+  </div>
+</div>
+
+<!-- ═══ CELEBRACIÓN ══════════════════════════════════════════ -->
+<div id="celebracion" class="cel-overlay" style="display:none">
+  <div id="confetti"></div>
+  <div class="cel-card">
+    <div class="cel-icon" id="cel-icon-el"></div>
+    <h2 class="cel-title">Cobro registrado</h2>
+    <p class="cel-monto" id="cel-monto">L 0.00</p>
+    <p class="cel-sub">Excelente trabajo</p>
+  </div>
+</div>
+
+<!-- ═══ LOGIN ════════════════════════════════════════════════ -->
+<div id="login-screen" class="login-screen">
+  <div class="login-card">
+    <div class="login-logo" data-ic="briefcase"></div>
+    <h1 class="login-title">Cobros Pro</h1>
+    <p class="login-sub">Sistema de gestión de cobros</p>
+    <div class="login-form">
+      <select id="login-usuario" class="login-input"><option value="">Seleccionar usuario...</option></select>
+      <input type="password" id="login-pass" class="login-input" placeholder="Contraseña">
+      <button class="login-btn" onclick="iniciarSesion()">Ingresar</button>
+      <p id="login-error" class="login-error"></p>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ APP ═══════════════════════════════════════════════════ -->
+<div id="app-container" class="app-container" style="display:none">
+
+  <!-- SIDEBAR -->
+  <nav id="sidebar" class="sidebar">
+    <div class="sidebar-header">
+      <div class="brand">
+        <div class="brand-icon" data-ic="briefcase"></div>
+        <div>
+          <div class="brand-name">Cobros Pro</div>
+          <div class="brand-role" id="sidebar-brand-role">—</div>
+        </div>
+      </div>
+      <button class="btn-toggle-sb" onclick="toggleSidebar()" data-ic="chevron-left"></button>
+    </div>
+    <div class="sidebar-menu" id="sidebar-menu"></div>
+    <div class="sidebar-footer">
+      <div class="user-row">
+        <div class="user-avatar" id="user-avatar">G</div>
+        <div>
+          <div class="user-name-label" id="user-name-label">Usuario</div>
+          <div class="user-role-label" id="user-role-label">—</div>
+        </div>
+      </div>
+      <button class="btn-logout" onclick="cerrarSesion()">
+        <span data-ic="log-out"></span>
+        Cerrar sesión
+      </button>
+    </div>
+  </nav>
+  <div id="sidebar-overlay" class="sidebar-overlay" onclick="toggleSidebar()"></div>
+
+  <!-- MAIN -->
+  <main id="main" class="main">
+    <div class="mobile-header">
+      <button class="btn-mobile" onclick="toggleSidebar()" data-ic="menu"></button>
+      <span class="mobile-title">Cobros Pro</span>
+      <button class="btn-mobile" onclick="cargarTodosDatos()" data-ic="refresh-cw"></button>
+    </div>
+    <div id="loading" class="loading" style="display:none"><div class="spinner"></div><p>Cargando datos...</p></div>
+
+    <!-- ── DASHBOARD ──────────────────────────────────── -->
+    <div id="tab-dashboard" class="tab active">
+      <div class="page-header">
+        <div>
+          <h2 class="page-title">Dashboard</h2>
+          <p class="page-sub" id="ciclo-info">Cargando ciclo...</p>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <div id="dias-cierre" class="cycle-badge ok">— días</div>
+        </div>
+      </div>
+
+      <div class="meta-bar">
+        <span id="meta-label">Meta del ciclo: <strong id="meta-valor">—</strong></span>
+        <button class="btn-sec btn-sm" id="meta-edit-btn" onclick="switchTab('zonas')" style="display:none"><span data-ic="map-pin"></span>Editar zonas</button>
+      </div>
+
+      <!-- Rendimiento principal -->
+      <div class="rendimiento-grid">
+        <div class="card proy-card" id="proy-card">
+          <div>
+            <div class="proy-label">Proyección de cierre</div>
+            <div style="font-size:11px;color:var(--t3);margin-top:3px;font-family:var(--font-mono)" id="proy-ciclo-label"></div>
+          </div>
+          <div class="proy-pct" id="proy-pct-big">—%</div>
+          <div class="proy-msg" id="proy-sub-txt"></div>
+          <div class="proy-track"><div class="proy-fill" id="proy-fill-bar" style="width:0%"></div></div>
+          <div class="proy-detail">
+            <span id="proy-rec-label"></span>
+            <span id="proy-falta-label"></span>
+          </div>
+        </div>
+
+        <div class="meta-diaria-card">
+          <div class="card md-card">
+            <div class="md-header">
+              <span class="md-label">Meta diaria</span>
+              <span class="md-date" id="md-fecha"></span>
+            </div>
+            <div class="md-amounts">
+              <div class="md-amount">
+                <div class="md-amount-lbl">Meta del día</div>
+                <div class="md-amount-val" id="md-meta">—</div>
+              </div>
+              <div class="md-amount">
+                <div class="md-amount-lbl">Cobrado hoy</div>
+                <div class="md-amount-val c-green" id="md-cobrado">—</div>
+              </div>
+            </div>
+            <div class="md-result md-neutral" id="md-resultado">
+              <span id="md-result-icon-wrap"></span>
+              <span id="md-resultado-txt">—</span>
+              <span class="md-result-val" id="md-resultado-monto">—</span>
+            </div>
+            <div class="prog" style="margin-top:2px">
+              <div class="prog-head">
+                <span class="prog-lbl">Cumplimiento del día</span>
+                <span class="prog-pct" id="md-pct-lbl">0%</span>
+              </div>
+              <div class="prog-track"><div class="prog-fill" id="md-prog-fill" style="width:0%"></div></div>
+            </div>
+          </div>
+          <div class="card md-card">
+            <div class="md-header">
+              <span class="md-label">Acumulado del ciclo</span>
+              <span id="s-recup-count" style="font-size:11px;color:var(--t3);font-family:var(--font-mono)"></span>
+            </div>
+            <div class="md-amounts">
+              <div class="md-amount">
+                <div class="md-amount-lbl">Recuperado</div>
+                <div class="md-amount-val c-green" id="s-recup">—</div>
+              </div>
+              <div class="md-amount">
+                <div class="md-amount-lbl">% de meta</div>
+                <div class="md-amount-val" id="s-pct">—</div>
+              </div>
+            </div>
+            <div class="prog">
+              <div class="prog-head">
+                <span class="prog-lbl" id="s-pct-det"></span>
+                <span class="prog-pct" id="ciclo-avance-pct"></span>
+              </div>
+              <div class="prog-track thick"><div class="prog-fill" id="ciclo-prog-fill" style="width:0%"></div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Stats secundarios -->
+      <div class="stats-row">
+        <div class="stat-card">
+          <div class="stat-header"><span class="stat-label">Cartera total</span><div class="stat-icon si-accent" data-ic="layers"></div></div>
+          <div class="stat-val" id="s-cartera">—</div><div class="stat-sub" id="s-clientes">—</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-header"><span class="stat-label">Cuotas del ciclo</span><div class="stat-icon si-amber" data-ic="calendar"></div></div>
+          <div class="stat-val" id="s-cuotas">—</div><div class="stat-sub">Total a cobrar</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-header"><span class="stat-label">Cobrado hoy</span><div class="stat-icon si-green" data-ic="dollar-sign"></div></div>
+          <div class="stat-val c-green" id="s-cobrado-hoy">—</div><div class="stat-sub" id="s-cobros-count">—</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-header"><span class="stat-label">Gestiones hoy</span><div class="stat-icon si-blue" data-ic="phone"></div></div>
+          <div class="stat-val" id="s-gest">—</div><div class="stat-sub" id="s-contact">—</div>
+        </div>
+      </div>
+
+      <div class="dash-grid">
+        <div class="card">
+          <div class="card-title"><span data-ic="activity"></span>Avance del ciclo</div>
+          <div id="progress-bars"></div>
+        </div>
+        <div class="card">
+          <div class="card-title"><span data-ic="phone"></span>Gestiones de hoy</div>
+          <div id="estados-hoy"></div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom:18px">
+        <div class="card-title"><span data-ic="trending-up"></span>Cobro diario — últimos 14 días</div>
+        <div id="grafico-cobro"></div>
+      </div>
+
+      <div class="dash-grid">
+        <div class="card">
+          <div class="card-title"><span data-ic="credit-card"></span>Desglose de recuperación</div>
+          <div class="desglose-row">
+            <span class="desglose-label"><span data-ic="lock"></span>Capital</span>
+            <span class="desglose-val" id="desglose-capital" style="color:var(--green)">—</span>
+          </div>
+          <div class="desglose-row">
+            <span class="desglose-label"><span data-ic="trending-up"></span>Intereses</span>
+            <span class="desglose-val" id="desglose-intereses" style="color:var(--blue)">—</span>
+          </div>
+          <div style="margin-top:16px">
+            <div class="card-title" style="margin-bottom:10px">Medios de pago</div>
+            <div id="metodos-pago"></div>
+          </div>
+        </div>
+        <div class="card" id="mini-ranking-card">
+          <div class="card-title"><span data-ic="award"></span>Mejores gestores hoy</div>
+          <div id="mini-ranking"></div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom:18px">
+        <div class="card-title"><span data-ic="bar-chart-2"></span>Antigüedad de cartera</div>
+        <div id="mora-antiguedad"></div>
+      </div>
+
+      <div id="promesas-box" class="card card-warn" style="display:none">
+        <div class="card-title" style="color:var(--amber)"><span data-ic="alert-triangle"></span>Promesas vencidas (<span id="prom-count">0</span>)</div>
+        <div id="prom-list"></div>
+      </div>
+    </div>
+
+    <!-- ── CARTERA ──────────────────────────────────── -->
+    <div id="tab-cartera" class="tab">
+      <div class="page-header">
+        <div><h2 class="page-title">Cartera</h2><p class="page-sub">Clientes activos con balance pendiente</p></div>
+      </div>
+      <div class="filters">
+        <div class="fi-search" style="flex:1;min-width:200px">
+          <span data-ic="search"></span>
+          <input type="text" id="f-texto" placeholder="Buscar cliente..." oninput="filtrarCartera()">
+        </div>
+        <select id="f-ds" class="fi" onchange="filtrarCartera()">
+          <option value="">Día semana</option>
+          <option value="lunes">Lunes</option><option value="martes">Martes</option>
+          <option value="miércoles">Miércoles</option><option value="jueves">Jueves</option>
+          <option value="viernes">Viernes</option><option value="sábado">Sábado</option>
+        </select>
+        <select id="f-dm" class="fi" onchange="filtrarCartera()"><option value="">Día mes</option></select>
+        <select id="f-est" class="fi" onchange="filtrarCartera()"><option value="">Estado</option></select>
+        <select id="f-cart" class="fi" onchange="filtrarCartera()"><option value="">Carteras</option></select>
+        <select id="f-ord" class="fi" onchange="filtrarCartera()">
+          <option value="prioridad">Prioridad</option>
+          <option value="riesgo">Mayor riesgo</option>
+          <option value="mora">Mayor mora</option>
+          <option value="balance_desc">Mayor balance</option>
+          <option value="cuotas_desc">Mayor cuota</option>
+          <option value="nombre">Nombre A-Z</option>
+        </select>
+      </div>
+      <p class="count-label" id="c-count"></p>
+      <div id="c-list" class="cli-list"></div>
+    </div>
+
+    <!-- ── GESTIÓN HOY ──────────────────────────────── -->
+    <div id="tab-hoy" class="tab">
+      <div class="page-header">
+        <div><h2 class="page-title">Gestión de hoy</h2><p class="page-sub" id="hoy-info"></p></div>
+      </div>
+      <div class="hoy-stat-row" id="hoy-stats"></div>
+      <div id="hoy-pend"></div>
+      <div id="hoy-done"></div>
+      <div id="hoy-empty" class="empty" style="display:none">
+        <span data-ic-lg="inbox"></span>
+        <span class="empty-label">Sin clientes programados para hoy</span>
+      </div>
+    </div>
+
+    <!-- ── HISTORIAL ────────────────────────────────── -->
+    <div id="tab-historial" class="tab">
+      <div class="page-header"><h2 class="page-title">Historial</h2></div>
+      <div class="filters">
+        <input type="date" id="fh-date" class="fi" onchange="filtrarHistorial()">
+        <select id="fh-est" class="fi" onchange="filtrarHistorial()"><option value="">Todos los estados</option></select>
+        <button class="btn-sec" onclick="limpiarFiltrosHist()"><span data-ic="x"></span>Limpiar</button>
+      </div>
+      <p class="count-label" id="h-count"></p>
+      <div id="h-list" class="list"></div>
+    </div>
+
+    <!-- ── PAGOS ────────────────────────────────────── -->
+    <div id="tab-pagos" class="tab">
+      <div class="page-header"><h2 class="page-title">Pagos</h2></div>
+      <div class="filters">
+        <div class="fi-search" style="flex:1;min-width:200px">
+          <span data-ic="search"></span>
+          <input type="text" id="fp-txt" placeholder="Buscar..." oninput="filtrarPagos()">
+        </div>
+        <select id="fp-medio" class="fi" onchange="filtrarPagos()">
+          <option value="">Todos los medios</option>
+          <option value="efectivo">Efectivo</option>
+          <option value="transferencia">Transferencia</option>
+          <option value="cheque">Cheque</option>
+        </select>
+        <div id="p-total" style="font-size:13px;font-weight:600;color:var(--green);padding:7px 14px;font-family:var(--font-mono)"></div>
+      </div>
+      <div id="p-list" class="list"></div>
+    </div>
+
+    <!-- ── RANKING ──────────────────────────────────── -->
+    <div id="tab-ranking" class="tab">
+      <div class="page-header"><h2 class="page-title">Ranking</h2><p class="page-sub">Ciclo actual</p></div>
+      <div id="mejor-hora" class="best-hour-box"></div>
+      <div id="ranking-list" class="list"></div>
+    </div>
+
+    <!-- ── LOGROS ───────────────────────────────────── -->
+    <div id="tab-logros" class="tab">
+      <div class="page-header"><h2 class="page-title">Logros</h2></div>
+      <div class="game-header">
+        <div class="nivel-row">
+          <div class="nivel-icon-wrap" id="g-nivel-icon"></div>
+          <div>
+            <div class="nivel-name" id="g-nivel-name">—</div>
+            <div class="nivel-pts" id="g-puntos">0 pts</div>
+          </div>
+          <div class="racha-chip">
+            <span data-ic="flame"></span>
+            <span id="g-racha">0</span> días
+          </div>
+        </div>
+        <div class="nivel-bar-track"><div class="nivel-bar-fill" id="g-nivel-bar" style="width:0%"></div></div>
+        <div class="nivel-next" id="g-nivel-prox"></div>
+      </div>
+      <div class="stats-row" style="margin-bottom:16px">
+        <div class="stat-card"><div class="stat-header"><span class="stat-label">Gestiones</span><div class="stat-icon si-blue" data-ic="phone"></div></div><div class="stat-val" id="g-gest-hoy">0</div><div class="stat-sub">hoy</div></div>
+        <div class="stat-card"><div class="stat-header"><span class="stat-label">Cobros</span><div class="stat-icon si-green" data-ic="check-circle"></div></div><div class="stat-val" id="g-cobros-hoy">0</div><div class="stat-sub">hoy</div></div>
+        <div class="stat-card" style="grid-column:span 2"><div class="stat-header"><span class="stat-label">Cobrado hoy</span><div class="stat-icon si-amber" data-ic="dollar-sign"></div></div><div class="stat-val" id="g-cobrado-hoy">—</div><div class="stat-sub">total</div></div>
+      </div>
+      <div style="font-size:11px;font-weight:600;color:var(--t3);text-transform:uppercase;letter-spacing:.08em;margin-bottom:12px;">Logros del día</div>
+      <div id="logros-grid" class="logros-grid"></div>
+    </div>
+
+    <!-- ── USUARIOS ─────────────────────────────────── -->
+    <div id="tab-usuarios" class="tab">
+      <div class="page-header">
+        <div><h2 class="page-title">Usuarios</h2><p class="page-sub">Gestionados desde Google Sheets — hoja <strong>Usuarios</strong></p></div>
+      </div>
+      <div id="users-list" class="list"></div>
+    </div>
+
+    <!-- ── ZONAS (Carteras + Metas) ─────────────────── -->
+    <div id="tab-zonas" class="tab">
+      <div class="page-header">
+        <div>
+          <h2 class="page-title">Zonas</h2>
+          <p class="page-sub">Cada zona tiene su meta. La suma es la meta global del ciclo.</p>
+        </div>
+        <button class="btn-pri" onclick="nuevaCartera()"><span data-ic="plus-circle"></span>Nueva zona</button>
+      </div>
+
+      <div class="card" style="margin-bottom:18px">
+        <div class="card-title"><span data-ic="target"></span>Meta global del ciclo</div>
+        <div style="display:flex;align-items:baseline;gap:14px;flex-wrap:wrap">
+          <div class="proy-pct" id="zonas-meta-total" style="font-size:44px">L 0.00</div>
+          <div style="color:var(--t3);font-size:13px" id="zonas-meta-detalle">Suma de todas las zonas</div>
+        </div>
+      </div>
+
+      <div id="zonas-list" class="list"></div>
+    </div>
+  </main>
+</div>
+
+<!-- ═══ MODAL GESTIONAR ═══════════════════════════════════════ -->
+<div id="modal" class="modal-overlay" style="display:none" onclick="cerrarModal(event)">
+  <div class="modal-card" onclick="event.stopPropagation()">
+    <div class="modal-head">
+      <div style="min-width:0">
+        <div class="modal-title" id="m-nombre"></div>
+        <div class="modal-meta" id="m-info"></div>
+      </div>
+      <div class="modal-head-right">
+        <span class="timer-chip" id="m-timer"><span data-ic="clock"></span>00:00</span>
+        <button class="btn-x" onclick="cerrarModal()" data-ic="x"></button>
+      </div>
+    </div>
+
+    <div class="modal-sec" id="m-prest-sec">
+      <div class="sec-label"><span data-ic="layers"></span>Préstamos activos</div>
+      <div id="m-prest"></div>
+    </div>
+
+    <div class="modal-sec">
+      <div id="m-plantillas"></div>
+    </div>
+
+    <div class="modal-sec">
+      <div class="sec-label"><span data-ic="check-square"></span>Registrar gestión</div>
+      <div class="estados-grid" id="m-estados"></div>
+      <div id="m-monto-box" class="fg" style="display:none">
+        <label class="fl">Monto pagado (L)</label>
+        <input type="number" id="m-monto" class="fi fi-full" placeholder="0.00" step="0.01" min="0">
+      </div>
+      <div id="m-medio-box" class="fg" style="display:none">
+        <label class="fl">Medio de pago</label>
+        <select id="m-medio-pago" class="fi fi-full">
+          <option value="efectivo">Efectivo</option>
+          <option value="transferencia">Transferencia</option>
+          <option value="cheque">Cheque</option>
+        </select>
+      </div>
+      <div id="m-capital-box" class="fg" style="display:none">
+        <label class="fl">Capital cobrado (L) <span style="color:var(--t4);font-weight:400">— opcional</span></label>
+        <input type="number" id="m-capital" class="fi fi-full" placeholder="0.00" step="0.01" min="0">
+      </div>
+      <div id="m-intereses-box" class="fg" style="display:none">
+        <label class="fl">Intereses cobrados (L) <span style="color:var(--t4);font-weight:400">— opcional</span></label>
+        <input type="number" id="m-intereses" class="fi fi-full" placeholder="0.00" step="0.01" min="0">
+      </div>
+      <div id="m-prom-date-box" class="fg" style="display:none">
+        <label class="fl">Fecha de promesa</label>
+        <input type="date" id="m-prom-date" class="fi fi-full">
+      </div>
+      <div id="m-prom-hora-box" class="fg" style="display:none">
+        <label class="fl">Hora de promesa</label>
+        <input type="time" id="m-prom-hora" class="fi fi-full">
+      </div>
+      <div id="m-prom-monto-box" class="fg" style="display:none">
+        <label class="fl">Monto prometido (L)</label>
+        <input type="number" id="m-prom-monto" class="fi fi-full" placeholder="0.00" step="0.01" min="0">
+      </div>
+      <div class="fg">
+        <label class="fl">Comentario</label>
+        <textarea id="m-comment" class="fi-ta" placeholder="Notas adicionales..." rows="2"></textarea>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button id="m-save" class="btn-pri" style="flex:1" onclick="guardarGestion()" disabled>Guardar gestión</button>
+        <button class="btn-sec" onclick="cerrarModal()">Cancelar</button>
+      </div>
+    </div>
+
+    <div class="modal-sec" id="m-hist-sec" style="display:none">
+      <div class="sec-label"><span data-ic="clock"></span>Historial de contactos</div>
+      <div id="m-hist"></div>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast" style="display:none"></div>
+
+<script src="js/icons.js"></script>
+<script src="js/config.js"></script>
+<script src="js/api.js"></script>
+<script src="js/app.js"></script>
+<script>
+  // Hydrate data-ic attributes on initial load (for static HTML elements)
+  document.addEventListener('DOMContentLoaded', () => {
+    document.querySelectorAll('[data-ic]').forEach(el => {
+      el.innerHTML = icon(el.dataset.ic, 14) + el.innerHTML;
+    });
+    document.querySelectorAll('[data-ic-lg]').forEach(el => {
+      el.innerHTML = icon(el.dataset.icLg, 36);
+    });
+  });
+</script>
+</body>
+</html>
