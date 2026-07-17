@@ -9,6 +9,10 @@ const HOJA_USUARIOS  = 'Usuarios';
 const HOJA_CONFIG    = 'Config';
 const HOJA_CARTERAS  = 'Carteras';
 
+// Normaliza texto: recorta y colapsa espacios dobles.
+// La hoja se edita a mano, así que "Gestión  Telefónica 1 " debe llegar limpio.
+function _nc(v) { return String(v==null?'':v).trim().replace(/\s+/g,' '); }
+
 function doGet(e) {
   const a = e.parameter.action;
   if (!a) return HtmlService.createHtmlOutput('Cobros Pro API v4');
@@ -153,7 +157,7 @@ function getUsuarios() {
   for (let i = 1; i < d.length; i++) {
     const f = d[i]; if (!f[0]) continue;
     r.push({ id:String(f[0]).trim(), nombre:String(f[1]).trim(), pass:String(f[2]).trim(),
-              rol:String(f[3]).trim(), avatar:String(f[4]||'').trim(), cartera:String(f[5]||'').trim() });
+              rol:String(f[3]||'').trim().toLowerCase(), avatar:String(f[4]||'').trim(), cartera:_nc(f[5]) });
   }
   return {success:true, data:r};
 }
@@ -197,7 +201,7 @@ function getCarteras() {
   for (let i = 1; i < d.length; i++) {
     const f = d[i]; if (!f[0]) continue;
     r.push({
-      nombre:      String(f[0]).trim(),
+      nombre:      _nc(f[0]),
       meta:        parseFloat(f[1])||0,
       descripcion: String(f[2]||'').trim()
     });
@@ -268,11 +272,13 @@ function getPrestamos() {
   if (!h) return {success:true, data:[], total:0};
   const d = h.getDataRange().getValues(), r = [];
   for (let i = 1; i < d.length; i++) {
-    const f = d[i], bal = parseFloat(f[5])||0, bc = parseFloat(f[6])||0;
+    const f = d[i];
+    if (!f[1]) continue;
+    const bal = parseFloat(f[5])||0, bc = parseFloat(f[6])||0;
     if ((bal+bc) < 5) continue;
     r.push({ id:f[0], cliente:String(f[1]).trim(), tipo:f[2], fecha:ff(f[3]),
               capital:parseFloat(f[4])||0, balance:bal, balanceCuotas:bc,
-              diaPago:String(f[7]).trim(), cartera:String(f[8]||'').trim() });
+              diaPago:String(f[7]||'').trim(), cartera:_nc(f[8]) });
   }
   return {success:true, data:r, total:r.length};
 }
@@ -290,7 +296,7 @@ function getPagos(fi, fn) {
     if (fn && fe > fn) continue;
     r.push({ id:f[0], cliente:String(f[1]).trim(), tipo:f[2], valor:parseFloat(f[3])||0, fecha:fe,
               capital:parseFloat(f[5])||0, intereses:parseFloat(f[6])||0, caja:String(f[7]||''),
-              cartera:String(f[8]||''), usuario:String(f[9]||''), medioPago:String(f[10]||'efectivo') });
+              cartera:_nc(f[8]), usuario:String(f[9]||''), medioPago:String(f[10]||'efectivo') });
   }
   return {success:true, data:r, total:r.length};
 }
@@ -456,6 +462,9 @@ function onOpen() {
   SpreadsheetApp.getUi().createMenu('Cobros Pro')
     .addItem('Resumen del día',           'mostrarResumen')
     .addSeparator()
+    .addItem('Sincronizar Carteras/Zonas', 'sincronizarCarteras')
+    .addItem('Diagnóstico de carteras',    'diagnosticoCarteras')
+    .addSeparator()
     .addItem('Crear TODAS las hojas',     'crearTodasLasHojas')
     .addSeparator()
     .addItem('Crear hoja: Prestamos',     'menuCrearPrestamos')
@@ -467,12 +476,116 @@ function onOpen() {
     .addToUi();
 }
 
+// Muestra qué carteras hay en Prestamos, cuántos clientes activos tiene cada
+// una y qué cartera tiene asignada cada usuario. Sirve para ver de un vistazo
+// por qué a un gestor no le aparecen clientes.
+function diagnosticoCarteras() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ui = SpreadsheetApp.getUi();
+  const hp = ss.getSheetByName(HOJA_PRESTAMOS);
+  if (!hp) { ui.alert('No existe la hoja "' + HOJA_PRESTAMOS + '".'); return; }
+
+  const d = hp.getDataRange().getValues();
+  const porCart = {};
+  let sinCartera = 0, filtradas = 0;
+  for (let i = 1; i < d.length; i++) {
+    const f = d[i];
+    if (!f[1]) continue;
+    const bal = parseFloat(f[5])||0, bc = parseFloat(f[6])||0;
+    if ((bal+bc) < 5) { filtradas++; continue; }
+    const nom = String(f[8]||'').trim();
+    if (!nom) { sinCartera++; continue; }
+    const k = _ck(nom);
+    if (!porCart[k]) porCart[k] = {nombre:nom, filas:0, clientes:{}};
+    porCart[k].filas++;
+    porCart[k].clientes[String(f[1]).trim()] = 1;
+  }
+
+  let msg = 'CARTERAS EN "Prestamos" (solo filas con saldo ≥ 5)\n\n';
+  const keys = Object.keys(porCart);
+  if (!keys.length) msg += '(ninguna)\n';
+  keys.forEach(k => {
+    const c = porCart[k];
+    msg += '• "' + c.nombre + '" → ' + Object.keys(c.clientes).length + ' clientes, ' + c.filas + ' filas\n';
+  });
+  msg += '\nFilas ignoradas por saldo < 5: ' + filtradas;
+  msg += '\nFilas con saldo pero SIN cartera: ' + sinCartera;
+
+  const hu = ss.getSheetByName(HOJA_USUARIOS);
+  if (hu) {
+    const du = hu.getDataRange().getValues();
+    msg += '\n\nUSUARIOS\n';
+    for (let i = 1; i < du.length; i++) {
+      if (!du[i][0]) continue;
+      const rol = String(du[i][3]||'').trim();
+      const car = String(du[i][5]||'').trim();
+      let nota = '';
+      if (rol === 'gestor') {
+        if (!car) nota = '  ← SIN CARTERA (ve todo)';
+        else if (!porCart[_ck(car)]) nota = '  ← ¡NO COINCIDE con ninguna cartera!';
+        else nota = '  ✓ ' + Object.keys(porCart[_ck(car)].clientes).length + ' clientes';
+      }
+      msg += '• ' + String(du[i][0]).trim() + ' (' + rol + ') → "' + car + '"' + nota + '\n';
+    }
+  }
+  ui.alert(msg);
+}
+
 function menuCrearPrestamos() { _menuCrear(HOJA_PRESTAMOS, crearHojaPrestamos); }
 function menuCrearPagos()     { _menuCrear(HOJA_PAGOS,     crearHojaPagos); }
 function menuCrearGestiones() { _menuCrear(HOJA_GESTIONES, crearHojaGestiones); }
 function menuCrearUsuarios()  { _menuCrear(HOJA_USUARIOS,  crearHojaUsuarios, 'Admin: admin / 1234'); }
 function menuCrearConfig()    { _menuCrear(HOJA_CONFIG,    crearHojaConfig,   'Ajusta meta_ciclo según tu meta.'); }
-function menuCrearCarteras()  { _menuCrear(HOJA_CARTERAS,  crearHojaCarteras, 'Agregá tus zonas con Nombre + Meta.'); }
+function menuCrearCarteras()  { sincronizarCarteras(); }
+
+// Crea la hoja Carteras si falta y la prellena con las carteras que realmente
+// aparecen en Prestamos. Evita typos: los nombres salen tal cual de la hoja.
+function sincronizarCarteras() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ui = SpreadsheetApp.getUi();
+  let h = ss.getSheetByName(HOJA_CARTERAS);
+  const creada = !h;
+  if (!h) h = crearHojaCarteras(ss);
+
+  const hp = ss.getSheetByName(HOJA_PRESTAMOS);
+  if (!hp) { ui.alert('No existe la hoja "' + HOJA_PRESTAMOS + '".'); return; }
+
+  // Carteras reales en Prestamos (columna I)
+  const dp = hp.getDataRange().getValues();
+  const reales = new Map();
+  for (let i = 1; i < dp.length; i++) {
+    const nom = String(dp[i][8]||'').trim().replace(/\s+/g,' ');
+    if (!nom) continue;
+    const k = _ck(nom);
+    if (!reales.has(k)) reales.set(k, nom);
+  }
+
+  // Ya registradas
+  const dz = h.getDataRange().getValues();
+  const yaHay = new Set();
+  for (let i = 1; i < dz.length; i++) {
+    const n = String(dz[i][0]||'').trim();
+    if (n) yaHay.add(_ck(n));
+  }
+
+  const nuevas = [];
+  reales.forEach((nom, k) => { if (!yaHay.has(k)) nuevas.push([nom, 0, '(detectada en Prestamos)']); });
+  if (nuevas.length) h.getRange(h.getLastRow()+1, 1, nuevas.length, 3).setValues(nuevas);
+
+  ui.alert(
+    (creada ? 'Hoja "Carteras" creada.\n\n' : '') +
+    'Carteras encontradas en Prestamos: ' + reales.size + '\n' +
+    'Agregadas ahora: ' + nuevas.length + '\n\n' +
+    (nuevas.length ? nuevas.map(n=>'• '+n[0]).join('\n') + '\n\n' : '') +
+    'Poné la Meta de cada zona en la columna B.'
+  );
+}
+
+// Clave tolerante (may/min + acentos), igual que en el frontend.
+function _ck(v) {
+  return String(v==null?'':v).trim().replace(/\s+/g,' ').toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+}
 
 function _menuCrear(nombre, fn, extra) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();

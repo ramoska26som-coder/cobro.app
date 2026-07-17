@@ -355,26 +355,75 @@ function switchTab(id) {
 // ══════════════════════════════════════
 async function cargarTodosDatos() {
   document.getElementById('loading').style.display='flex';
-  try {
-    const [pr, pa, ge, meta, ca] = await Promise.all([
-      API.getPrestamos(), API.getPagos(), API.getGestiones(), API.getMeta(), API.getCarteras()
-    ]);
-    D.prestamos  = pr.data||[];
-    D.pagos      = pa.data||[];
-    D.gestiones  = ge.data||[];
-    D.carteras   = ca.data||[];
-    CONFIG.META_CICLO = meta.meta||0;
-    try { const db=await API.getDashboard(); if(db.success) dashData=db.data; } catch(e){}
-    toast('Datos sincronizados','success');
-    mostrarResumenInicial();
-  } catch(e) {
-    if (e.message==='URL_NO_CONFIGURADA') {
-      cargarEjemplo(); toast('Modo demo — Configurá la URL en config.js','error');
+
+  // allSettled en vez de all: si una sola llamada falla (p.ej. getCarteras en un
+  // deployment viejo que no la conoce), NO se pierden las otras cuatro ni se
+  // sustituyen los datos reales por los de ejemplo.
+  const res = await Promise.allSettled([
+    API.getPrestamos(), API.getPagos(), API.getGestiones(), API.getMeta(), API.getCarteras()
+  ]);
+  const [pr, pa, ge, meta, ca] = res;
+  const val = r => (r.status==='fulfilled' ? r.value : null);
+  const fallos = [];
+
+  const vPr = val(pr); if (!vPr) fallos.push('préstamos');
+  const vPa = val(pa); if (!vPa) fallos.push('pagos');
+  const vGe = val(ge); if (!vGe) fallos.push('gestiones');
+  const vCa = val(ca); if (!vCa) fallos.push('zonas');
+
+  // Si ni los préstamos cargaron, no hay nada real que mostrar.
+  if (!vPr || !Array.isArray(vPr.data)) {
+    const err = pr.status==='rejected' ? pr.reason : null;
+    document.getElementById('loading').style.display='none';
+    if (err && err.message==='URL_NO_CONFIGURADA') {
+      cargarEjemplo();
+      toast('Modo demo — Configurá la URL en config.js','error');
     } else {
-      cargarEjemplo(); toast('Sin conexión — Datos de ejemplo','error');
+      mostrarErrorConexion(err ? err.message : (vPr && vPr.error) || 'Sin datos');
     }
+    return;
   }
+
+  D.prestamos = vPr.data || [];
+  D.pagos     = vPa ? (vPa.data||[]) : [];
+  D.gestiones = vGe ? (vGe.data||[]) : [];
+  D.carteras  = vCa ? (vCa.data||[]) : [];
+  CONFIG.META_CICLO = (val(meta) && val(meta).meta) || 0;
+
+  // Zonas es opcional: si la hoja Carteras no existe todavía, se deducen las
+  // carteras reales desde los préstamos para que el filtrado siga funcionando.
+  if (!D.carteras.length && D.prestamos.length) {
+    const vistas = new Map();
+    D.prestamos.forEach(p => {
+      const k = cartKey(p.cartera);
+      if (k && !vistas.has(k)) vistas.set(k, normCart(p.cartera));
+    });
+    D.carteras = [...vistas.values()].map(n => ({nombre:n, meta:0, descripcion:'(detectada en Prestamos)'}));
+  }
+
+  try { const db=await API.getDashboard(); if(db.success) dashData=db.data; } catch(e){}
+
+  if (fallos.length) toast('Cargado sin: ' + fallos.join(', '), 'error');
+  else               toast('Datos sincronizados','success');
+
+  mostrarResumenInicial();
   document.getElementById('loading').style.display='none';
+  const at=document.querySelector('.menu-item.active');
+  switchTab(at?at.dataset.tab:'dashboard');
+}
+
+// Pantalla honesta de error: nunca finge datos reales.
+function mostrarErrorConexion(msg) {
+  D.prestamos=[]; D.pagos=[]; D.gestiones=[]; D.carteras=[];
+  const cont = document.getElementById('c-lista') || document.body;
+  toast('Error de conexión: ' + msg, 'error');
+  if (cont && cont.id==='c-lista') {
+    cont.innerHTML = `<div class="empty">${ic('alert-triangle',38)}
+      <span class="empty-label">No se pudo conectar con la hoja</span>
+      <div style="font-size:12px;color:var(--t3);margin-top:6px">${esc(msg)}</div>
+      <button class="btn-pri" style="margin-top:12px" onclick="cargarTodosDatos()">${ic('refresh-cw',14)}Reintentar</button>
+    </div>`;
+  }
   const at=document.querySelector('.menu-item.active');
   switchTab(at?at.dataset.tab:'dashboard');
 }
